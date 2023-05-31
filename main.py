@@ -143,9 +143,11 @@ def pattern_match(patterns, source_list):
 
 
 def main():
+    
     args = parse_args()
     transformers.logging.set_verbosity_error()
     datasets.logging.set_verbosity_error()
+    print("save to", args.save_generations_path)
 
     if args.tasks is None:
         task_names = ALL_TASKS

@@ -1,8 +1,8 @@
-HF_HOME=/scratch/wl678/huggingface CUDA_VISIBLE_DEVICES=0,1 accelerate launch  main.py \
+HF_HOME=/scratch/wl678/huggingface CUDA_VISIBLE_DEVICES="$1" accelerate launch  main.py \
   --model bigcode/starcoder \
   --max_length_generation 300\
   --tasks humaneval_io \
-  --n_samples 100 \
+  --n_samples 25 \
   --batch_size 1 \
   --temperature 0.8 \
   --top_p 0.95 \
@@ -10,4 +10,4 @@ HF_HOME=/scratch/wl678/huggingface CUDA_VISIBLE_DEVICES=0,1 accelerate launch  m
   --use_auth_token \
   --trust_remote_code \
   --save_generations \
-  --save_generations_path starcoder_humaneval_io.json
+  --save_generations_path "starcoder_humaneval_io_$1.json"
