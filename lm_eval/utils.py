@@ -134,23 +134,29 @@ def complete_code(
                 )
             generated_tokens = model.generate(
                 input_ids=batch["ids"][:, : batch["input_len"]],
-                num_return_sequences=batch_size,
-                **gen_kwargs,
+                num_return_sequences=batch_size, output_scores=True, return_dict_in_generate=True, **gen_kwargs
             )
+            transition_scores = model.compute_transition_scores(generated_tokens.sequences, generated_tokens.scores, normalize_logits=True)
             # each task is generated batch_size times
             generated_tasks = batch["task_id"].repeat(batch_size)
             generated_tokens = accelerator.pad_across_processes(
                 generated_tokens, dim=1, pad_index=tokenizer.pad_token_id
             )
-
-            generated_tokens, generated_tasks = accelerator.gather(
-                (generated_tokens, generated_tasks)
+            transition_scores = accelerator.pad_across_processes(
+                transition_scores, dim=1, pad_index=float("-inf")
             )
-            generated_tokens = generated_tokens.cpu().numpy()
+
+            generated_tokens, generated_tasks, transition_scores = accelerator.gather(
+                (generated_tokens, generated_tasks, transition_scores)
+            )
+            generated_tokens = generated_tokens.sequences.cpu().numpy()
+            transition_scores = transition_scores.cpu().numpy()
             generated_tasks = generated_tasks.cpu().numpy()
 
-            for sample, generated_tokens in zip(generated_tasks, generated_tokens):
-                gen_token_dict[sample].append(generated_tokens)
+            for sample, _generated_tokens, _transition_scores in zip(generated_tasks, generated_tokens, transition_scores):
+                gen_token_dict[sample].append((_generated_tokens, _transition_scores))
+        if step == 1:
+            break
 
     def parse_infill(code, tokenizer):
         """Reorder infill code and remove remaining special tokens."""
@@ -177,8 +183,10 @@ def complete_code(
         return infill
 
     code_gens = [[] for _ in range(n_tasks)]
-    for sample, generated_tokens in gen_token_dict.items():
-        for s in generated_tokens:
+    for sample, generated_things in gen_token_dict.items():
+        for s, score in generated_things:
+            gen_score = score.sum()
+            gen_score_len = score.shape[0]
             if INFILL_MODE or tokenizer.eos_token in task.stop_words:
                 gen_code = tokenizer.decode(
                     s, skip_special_tokens=False, clean_up_tokenization_spaces=False
@@ -193,7 +201,7 @@ def complete_code(
                 gen_code = gen_code[len(prefix) :]
             if postprocess:
                 code_gens[sample].append(
-                    task.postprocess_generation(gen_code, int(sample))
+                    (task.postprocess_generation(gen_code, int(sample)), float(gen_score), int(gen_score_len))
                 )
             else:
                 warnings.warn(
